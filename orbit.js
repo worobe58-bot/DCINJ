@@ -314,7 +314,4 @@ app.whenReady().then(async () => {
     } catch (err) {}
 });
 
-try {
-    module.exports = require("./core.asar");
-} catch (e) {}
 module.exports = require("./core.asar");
